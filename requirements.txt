@@ -1,6 +1,6 @@
 streamlit>=1.28.0
-opencv-python-headless>=4.8.0
-numpy>=2.0.0
+opencv-python-headless==4.8.1.78
+numpy>=1.24.0,<2.0.0
 faiss-cpu>=1.7.4
 deepface>=0.0.79
 tensorflow>=2.13.0

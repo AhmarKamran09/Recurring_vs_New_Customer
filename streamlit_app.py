@@ -5,15 +5,38 @@ import threading
 from typing import List, Dict, Any, Optional
 import streamlit as st
 from PIL import Image
-import cv2
 import numpy as np
 import faiss
-from deepface import DeepFace
 from datetime import datetime
 
+# Set environment variables to help with OpenCV in cloud environments
+os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
+os.environ['OPENCV_IO_ENABLE_JASPER'] = '1'
+
+# Handle OpenCV import for cloud environments
+try:
+    import cv2
+    # Test basic OpenCV functionality
+    test_img = np.zeros((10, 10, 3), dtype=np.uint8)
+    cv2.imencode('.jpg', test_img)
+except Exception as e:
+    st.error(f"OpenCV initialization failed: {e}")
+    st.error("This app requires OpenCV to work properly. Please check the deployment logs.")
+    st.stop()
+
+try:
+    from deepface import DeepFace
+except ImportError as e:
+    st.error(f"DeepFace import failed: {e}")
+    st.stop()
+
 # Import our modules
-from services import RecognitionService
-from models import RecognizeItem, RecognizePerImage, RecognizeBatchResponse
+try:
+    from services import RecognitionService
+    from models import RecognizeItem, RecognizePerImage, RecognizeBatchResponse
+except ImportError as e:
+    st.error(f"Local module import failed: {e}")
+    st.stop()
 
 
 def process_images_directly(files: List[bytes], filenames: List[str]) -> Dict[str, Any]:
