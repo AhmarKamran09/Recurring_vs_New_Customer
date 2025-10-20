@@ -11,6 +11,7 @@ import utils
 
 class RecognitionService:
     _instance: Optional["RecognitionService"] = None
+    _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
         self.index: faiss.Index = utils.load_or_create_index()
@@ -18,8 +19,9 @@ class RecognitionService:
     @classmethod
     def instance(cls) -> "RecognitionService":
         if cls._instance is None:
-            if cls._instance is None:
-                cls._instance = RecognitionService()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = RecognitionService()
         return cls._instance
 
     def reload_index(self) -> int:
