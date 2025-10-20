@@ -63,26 +63,47 @@ async def recognize_batch(files: list[UploadFile] = File(...)) -> RecognizeBatch
         if not f.filename:
             outputs.append(RecognizePerImage(filename="", num_faces=0, results=[]))
             continue
-        suffix = os.path.splitext(f.filename)[1] or ".jpg"
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="upload_")
-        os.close(fd)
-        data = await f.read()
-        np_arr = np.frombuffer(data, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if img is None:
-            outputs.append(RecognizePerImage(filename=f.filename, num_faces=0, results=[]))
-            continue
-        cv2.imwrite(tmp_path, img)
+        
         try:
+            # Read file data
+            data = await f.read()
+            if not data or len(data) == 0:
+                outputs.append(RecognizePerImage(filename=f.filename, num_faces=0, results=[]))
+                continue
+            
+            # Convert to numpy array and decode
+            np_arr = np.frombuffer(data, np.uint8)
+            if len(np_arr) == 0:
+                outputs.append(RecognizePerImage(filename=f.filename, num_faces=0, results=[]))
+                continue
+                
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if img is None:
+                outputs.append(RecognizePerImage(filename=f.filename, num_faces=0, results=[]))
+                continue
+            
+            # Save to temporary file
+            suffix = os.path.splitext(f.filename)[1] or ".jpg"
+            fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="upload_")
+            os.close(fd)
+            cv2.imwrite(tmp_path, img)
+            
+            # Process with recognition service
             results_raw = service.recognize_image_path(tmp_path)
             items = [RecognizeItem(**r) for r in results_raw]
             outputs.append(RecognizePerImage(filename=f.filename, num_faces=len(items), results=items))
+            
+        except Exception as e:
+            print(f"Error processing {f.filename}: {e}")
+            outputs.append(RecognizePerImage(filename=f.filename, num_faces=0, results=[]))
         finally:
+            # Clean up temporary file
             try:
-                os.remove(tmp_path)
+                if 'tmp_path' in locals():
+                    os.remove(tmp_path)
             except OSError:
                 pass
-
+    print(f"Outputs: {outputs}")
     return RecognizeBatchResponse(items=outputs)
 
 
