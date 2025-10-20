@@ -45,8 +45,7 @@ class RecognitionService:
 
                 is_match = similarity > utils.THRESHOLD
                 if not is_match:
-                    # add to DB
-                    new_path = utils.save_new_customer_face(face_img_bgr)
+                    # add to DB (only FAISS index, no image saving)
                     self.index.add(emb)
                     faiss.write_index(self.index, utils.FAISS_INDEX_PATH)
                     results.append(
@@ -54,7 +53,6 @@ class RecognitionService:
                             "is_returning": False,
                             "similarity": similarity,
                             "index": match_idx,
-                            "saved_path": new_path,
                         }
                     )
                 else:

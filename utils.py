@@ -110,11 +110,5 @@ def detect_faces_and_crop(
     return cropped_faces
 
 
-def save_new_customer_face(face_img_bgr: np.ndarray) -> str:
-    ensure_customer_dir_exists()
-    new_name = f"new_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-    new_path = os.path.join(CUSTOMER_DIR, new_name)
-    cv2.imwrite(new_path, face_img_bgr)
-    return new_path
 
 

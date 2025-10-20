@@ -1,34 +1,70 @@
 import io
-import requests
-from typing import List, Dict, Any
+import os
+import tempfile
+import threading
+from typing import List, Dict, Any, Optional
 import streamlit as st
 from PIL import Image
-import base64
+import cv2
+import numpy as np
+import faiss
+from deepface import DeepFace
+from datetime import datetime
 
-# Configuration
-FASTAPI_URL = "http://localhost:8000"
+# Import our modules
+from services import RecognitionService
+from models import RecognizeItem, RecognizePerImage, RecognizeBatchResponse
 
 
-def upload_files_to_api(files: List[bytes], filenames: List[str]) -> Dict[str, Any]:
-    """Upload files to FastAPI backend"""
+def process_images_directly(files: List[bytes], filenames: List[str]) -> Dict[str, Any]:
+    """Process images directly using the recognition service"""
     try:
-        files_data = []
-        for file_bytes, filename in zip(files, filenames):
-            # Determine MIME type based on file extension
-            if filename.lower().endswith('.png'):
-                mime_type = "image/png"
-            elif filename.lower().endswith(('.jpg', '.jpeg')):
-                mime_type = "image/jpeg"
-            else:
-                mime_type = "image/jpeg"  # default
-            
-            files_data.append(("files", (filename, file_bytes, mime_type)))
+        service = RecognitionService.instance()
+        outputs: List[RecognizePerImage] = []
         
-        response = requests.post(f"{FASTAPI_URL}/api/recognize-batch", files=files_data)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error connecting to API: {e}")
+        for file_bytes, filename in zip(files, filenames):
+            if not filename:
+                outputs.append(RecognizePerImage(filename="", num_faces=0, results=[]))
+                continue
+            
+            try:
+                # Convert bytes to numpy array and decode
+                np_arr = np.frombuffer(file_bytes, np.uint8)
+                if len(np_arr) == 0:
+                    outputs.append(RecognizePerImage(filename=filename, num_faces=0, results=[]))
+                    continue
+                    
+                img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if img is None:
+                    outputs.append(RecognizePerImage(filename=filename, num_faces=0, results=[]))
+                    continue
+                
+                # Save to temporary file for DeepFace processing
+                suffix = os.path.splitext(filename)[1] or ".jpg"
+                fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="upload_")
+                os.close(fd)
+                cv2.imwrite(tmp_path, img)
+                
+                # Process with recognition service
+                results_raw = service.recognize_image_path(tmp_path)
+                items = [RecognizeItem(**r) for r in results_raw]
+                outputs.append(RecognizePerImage(filename=filename, num_faces=len(items), results=items))
+                
+            except Exception as e:
+                st.error(f"Error processing {filename}: {e}")
+                outputs.append(RecognizePerImage(filename=filename, num_faces=0, results=[]))
+            finally:
+                # Clean up temporary file
+                try:
+                    if 'tmp_path' in locals():
+                        os.remove(tmp_path)
+                except OSError:
+                    pass
+        
+        return {"items": [item.dict() for item in outputs]}
+        
+    except Exception as e:
+        st.error(f"Error processing images: {e}")
         return None
 
 def display_results(results: Dict[str, Any]):
@@ -53,15 +89,14 @@ def display_results(results: Dict[str, Any]):
                     else:
                         st.info(f"🆕 New Customer")
                         st.metric("Similarity", f"{result['similarity']:.3f}")
-                        if result.get("saved_path"):
-                            st.caption(f"Saved to: {result['saved_path']}")
+                        st.caption("Added to recognition database")
                 
                 with col2:
                     st.write(f"**Face {i+1}**")
                     if result["is_returning"]:
                         st.write("This face matches an existing customer in the database.")
                     else:
-                        st.write("This is a new face that has been added to the database.")
+                        st.write("This is a new face that has been added to the recognition database.")
 
 def main():
     st.set_page_config(
@@ -73,16 +108,18 @@ def main():
     st.title("👤 Face Recognition System")
     st.markdown("Upload images to detect and recognize faces using our AI-powered system.")
     
-    # Sidebar for API status
+    # Sidebar for system status
     with st.sidebar:
         st.header("🔧 System Status")
         try:
-            # Try to ping the API (we'll add a health endpoint later)
-            response = requests.get(f"{FASTAPI_URL}/docs", timeout=5)
-            st.success("✅ API Connected")
-        except:
-            st.error("❌ API Not Available")
-            st.caption("Make sure FastAPI server is running on port 8000")
+            # Check if recognition service is available
+            service = RecognitionService.instance()
+            index_size = service.index.ntotal
+            st.success("✅ Face Recognition Ready")
+            st.metric("Database Size", f"{index_size} faces")
+        except Exception as e:
+            st.error("❌ System Error")
+            st.caption(f"Error: {str(e)}")
         
         st.markdown("---")
         st.markdown("### 📋 Instructions")
@@ -132,8 +169,8 @@ def main():
                         file_bytes = uploaded_file.read()
                         files_data.append(file_bytes)
                         filenames.append(uploaded_file.name)
-                    # Send to API
-                    results = upload_files_to_api(files_data, filenames)
+                    # Process images directly
+                    results = process_images_directly(files_data, filenames)
                     
                     if results:
                         st.success("✅ Processing completed!")
@@ -147,7 +184,7 @@ def main():
     st.markdown("---")
     st.markdown(
         "<div style='text-align: center; color: gray;'>"
-        "Face Recognition System powered by FastAPI + Streamlit"
+        "Face Recognition System powered by Streamlit + DeepFace"
         "</div>",
         unsafe_allow_html=True
     )
